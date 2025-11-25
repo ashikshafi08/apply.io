@@ -141,15 +141,3 @@ export function ParsingProgress({ isActive, isComplete = false, currentStep = 0 
     </AnimatePresence>
   );
 }
-
-// Minimal inline indicator for very tight spaces
-export function ParsingIndicator({ text = "Parsing..." }: { text?: string }) {
-  return (
-    <div className="flex items-center gap-2">
-      <Loader size={14} className="text-primary" />
-      <Shimmer className="text-xs" duration={1.5}>
-        {text}
-      </Shimmer>
-    </div>
-  );
-}
