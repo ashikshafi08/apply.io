@@ -11,7 +11,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { Sidebar } from "./sidebar";
 
 interface HeaderProps {
@@ -32,6 +33,10 @@ export function Header({ title, description, breadcrumbs }: HeaderProps) {
             </Button>
           </SheetTrigger>
           <SheetContent side="left" className="w-64 p-0">
+            <VisuallyHidden>
+              <SheetTitle>Navigation Menu</SheetTitle>
+              <SheetDescription>Main navigation sidebar</SheetDescription>
+            </VisuallyHidden>
             <Sidebar />
           </SheetContent>
         </Sheet>

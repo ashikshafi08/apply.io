@@ -1,11 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AppShell } from "@/components/layout";
-import {
-  Card,
-  CardContent,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +14,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,116 +36,164 @@ import {
   ExternalLink,
   Bookmark,
   MoreVertical,
-  Mail,
   FileText,
-  Linkedin,
   Briefcase,
+  Loader2,
+  Copy,
+  Check,
+  Download,
+  DollarSign,
+  Wand2,
+  AlertTriangle,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-
-// Mock data - will be replaced with real data
-const mockJobs = [
-  {
-    id: "1",
-    title: "Senior ML Engineer",
-    company: "Anthropic",
-    companyLogo: null,
-    location: "San Francisco, CA",
-    isRemote: true,
-    source: "greenhouse",
-    sourceUrl: "https://example.com",
-    salaryMin: 200000,
-    salaryMax: 350000,
-    fitScore: 9.2,
-    fitReasons: ["LLM experience", "Python expertise", "Research background"],
-    requiredSkills: ["Python", "PyTorch", "LLMs", "Distributed Systems"],
-    postedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-    saved: false,
-  },
-  {
-    id: "2",
-    title: "AI Engineer",
-    company: "OpenAI",
-    companyLogo: null,
-    location: "San Francisco, CA",
-    isRemote: false,
-    source: "lever",
-    sourceUrl: "https://example.com",
-    salaryMin: 180000,
-    salaryMax: 300000,
-    fitScore: 8.7,
-    fitReasons: ["Strong fit for AI systems", "TypeScript experience"],
-    requiredSkills: ["Python", "TypeScript", "RAG", "Vector DBs"],
-    postedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
-    saved: true,
-  },
-  {
-    id: "3",
-    title: "Founding ML Engineer",
-    company: "Stealth Startup (YC W24)",
-    companyLogo: null,
-    location: "Remote",
-    isRemote: true,
-    source: "linkedin",
-    sourceUrl: "https://example.com",
-    salaryMin: 150000,
-    salaryMax: 220000,
-    fitScore: 8.5,
-    fitReasons: ["Startup experience", "Full-stack ML", "Early stage"],
-    requiredSkills: ["Python", "FastAPI", "LLMs", "AWS"],
-    postedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
-    saved: false,
-  },
-];
-
-function formatSalary(min?: number, max?: number) {
-  if (!min && !max) return null;
-  const format = (n: number) => `$${(n / 1000).toFixed(0)}k`;
-  if (min && max) return `${format(min)} - ${format(max)}`;
-  if (min) return `${format(min)}+`;
-  return `Up to ${format(max!)}`;
-}
-
-function formatDate(date: Date) {
-  const days = Math.floor(
-    (Date.now() - date.getTime()) / (1000 * 60 * 60 * 24)
-  );
-  if (days === 0) return "Today";
-  if (days === 1) return "Yesterday";
-  if (days < 7) return `${days} days ago`;
-  if (days < 30) return `${Math.floor(days / 7)} weeks ago`;
-  return `${Math.floor(days / 30)} months ago`;
-}
-
-function getSourceBadgeVariant(source: string) {
-  switch (source) {
-    case "greenhouse":
-      return "success";
-    case "lever":
-      return "default";
-    case "linkedin":
-      return "secondary";
-    default:
-      return "muted";
-  }
-}
+import { MOCK_JOBS, type Job } from "@/lib/mock-jobs";
+import { Shimmer } from "@/components/ai-elements/shimmer";
+import { loadProfileFromStorage } from "@/lib/profile-storage";
+import type { CoverLetter } from "@/mastra/agents/cover-letter";
 
 function getFitScoreClass(score: number) {
-  if (score >= 8.5) return "bg-success text-success-foreground";
-  if (score >= 7) return "bg-warning/80 text-warning-foreground";
+  if (score >= 90) return "bg-emerald-500/15 text-emerald-600 border-emerald-500/20";
+  if (score >= 75) return "bg-amber-500/15 text-amber-600 border-amber-500/20";
   return "bg-muted text-muted-foreground";
 }
 
 export default function JobsPage() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [jobs] = useState(mockJobs);
+  const [jobs] = useState<Job[]>(MOCK_JOBS);
+  const [savedJobs, setSavedJobs] = useState<Set<string>>(new Set(["job-2"]));
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [coverLetter, setCoverLetter] = useState<CoverLetter | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationStep, setGenerationStep] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [profileWarning, setProfileWarning] = useState<string | null>(null);
 
   const filteredJobs = jobs.filter(
     (job) =>
       job.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       job.company.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const toggleSaved = (jobId: string) => {
+    setSavedJobs((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(jobId)) {
+        newSet.delete(jobId);
+      } else {
+        newSet.add(jobId);
+      }
+      return newSet;
+    });
+  };
+
+  const generateCoverLetter = async (job: Job) => {
+    setSelectedJob(job);
+    setIsDialogOpen(true);
+    setCoverLetter(null);
+    setIsGenerating(true);
+    setProfileWarning(null);
+    setGenerationStep("Loading your profile...");
+
+    try {
+      // Load user profile from localStorage
+      const profile = loadProfileFromStorage();
+
+      // Check if profile is empty
+      const hasContent = profile && (
+        (profile.experience && profile.experience.length > 0) ||
+        (profile.skills && profile.skills.length > 0) ||
+        (profile.headline && profile.headline.trim().length > 0) ||
+        (profile.summary && profile.summary.trim().length > 0)
+      );
+
+      if (!hasContent) {
+        setProfileWarning("Your profile is empty. Upload a resume first for a personalized cover letter!");
+      }
+
+      const response = await fetch("/api/generate-cover-letter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobId: job.id,
+          profile: profile ? {
+            headline: profile.headline,
+            summary: profile.summary,
+            skills: profile.skills,
+            experience: profile.experience,
+            education: profile.education,
+          } : {},
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to generate cover letter");
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("No response stream");
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const event = JSON.parse(line.slice(6));
+              if (event.type === "progress") {
+                setGenerationStep(event.step || "Processing...");
+              } else if (event.type === "complete" && event.coverLetter) {
+                setCoverLetter(event.coverLetter);
+              } else if (event.type === "error") {
+                throw new Error(event.error);
+              }
+            } catch (e) {
+              // Skip malformed JSON
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error generating cover letter:", error);
+      setGenerationStep("Failed to generate. Please try again.");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const copyToClipboard = () => {
+    if (!coverLetter) return;
+    const text = formatCoverLetterAsText(coverLetter);
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const downloadAsTxt = () => {
+    if (!coverLetter || !selectedJob) return;
+    const text = formatCoverLetterAsText(coverLetter);
+    const blob = new Blob([text], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `cover-letter-${selectedJob.company.toLowerCase().replace(/\s+/g, "-")}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const formatCoverLetterAsText = (cl: CoverLetter): string => {
+    return `${cl.greeting}\n\n${cl.opening}\n\n${cl.body.join("\n\n")}\n\n${cl.closing}\n\n${cl.signature}`;
+  };
 
   return (
     <AppShell title="Jobs" description="Browse and manage your job matches">
@@ -166,19 +218,18 @@ export default function JobsPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Sources</SelectItem>
-                    <SelectItem value="greenhouse">Greenhouse</SelectItem>
-                    <SelectItem value="lever">Lever</SelectItem>
                     <SelectItem value="linkedin">LinkedIn</SelectItem>
-                    <SelectItem value="indeed">Indeed</SelectItem>
+                    <SelectItem value="greenhouse">Greenhouse</SelectItem>
                   </SelectContent>
                 </Select>
                 <Select defaultValue="all">
                   <SelectTrigger className="w-24">
-                    <SelectValue placeholder="Remote" />
+                    <SelectValue placeholder="Type" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All</SelectItem>
                     <SelectItem value="remote">Remote</SelectItem>
+                    <SelectItem value="hybrid">Hybrid</SelectItem>
                     <SelectItem value="onsite">On-site</SelectItem>
                   </SelectContent>
                 </Select>
@@ -200,7 +251,7 @@ export default function JobsPage() {
               <SelectValue placeholder="Sort by" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="fit">Fit Score</SelectItem>
+              <SelectItem value="fit">Match Score</SelectItem>
               <SelectItem value="recent">Most Recent</SelectItem>
               <SelectItem value="salary">Salary</SelectItem>
             </SelectContent>
@@ -227,7 +278,7 @@ export default function JobsPage() {
             {filteredJobs.map((job) => (
               <Card
                 key={job.id}
-                className="group transition-all duration-200 hover:border-border hover:shadow-soft"
+                className="group transition-all duration-200 hover:shadow-md"
               >
                 <CardContent className="pt-6">
                   <div className="flex gap-4">
@@ -241,24 +292,23 @@ export default function JobsPage() {
                       {/* Header Row */}
                       <div className="flex items-start justify-between gap-4">
                         <div className="min-w-0">
-                          <Link
-                            href={`/jobs/${job.id}`}
-                            className="text-lg font-semibold tracking-tight hover:text-primary transition-colors"
-                          >
+                          <h3 className="text-lg font-semibold tracking-tight">
                             {job.title}
-                          </Link>
+                          </h3>
                           <p className="text-muted-foreground">{job.company}</p>
                         </div>
 
-                        {/* Fit Score */}
-                        <div
-                          className={cn(
-                            "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-sm font-bold transition-transform group-hover:scale-105",
-                            getFitScoreClass(job.fitScore)
-                          )}
-                        >
-                          {job.fitScore.toFixed(1)}
-                        </div>
+                        {/* Match Score */}
+                        {job.matchScore && (
+                          <div
+                            className={cn(
+                              "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-sm font-bold border transition-transform group-hover:scale-105",
+                              getFitScoreClass(job.matchScore)
+                            )}
+                          >
+                            {job.matchScore}%
+                          </div>
+                        )}
                       </div>
 
                       {/* Meta Row */}
@@ -267,93 +317,92 @@ export default function JobsPage() {
                           <MapPin className="h-3.5 w-3.5" />
                           {job.location}
                         </span>
-                        {job.isRemote && (
-                          <Badge variant="secondary">Remote</Badge>
-                        )}
+                        <Badge variant="secondary" className="capitalize">
+                          {job.type}
+                        </Badge>
                         <span className="flex items-center gap-1.5">
                           <Clock className="h-3.5 w-3.5" />
-                          {formatDate(job.postedAt)}
+                          {job.postedAt}
                         </span>
-                        {formatSalary(job.salaryMin, job.salaryMax) && (
-                          <span className="font-medium text-foreground">
-                            {formatSalary(job.salaryMin, job.salaryMax)}
+                        {job.salary && (
+                          <span className="flex items-center gap-1.5 font-medium text-foreground">
+                            <DollarSign className="h-3.5 w-3.5" />
+                            {job.salary}
                           </span>
                         )}
                       </div>
 
-                      {/* Skills */}
+                      {/* Requirements Preview */}
                       <div className="flex flex-wrap gap-1.5">
-                        {job.requiredSkills.slice(0, 5).map((skill) => (
-                          <Badge key={skill} variant="outline" className="font-normal">
-                            {skill}
+                        {job.requirements.slice(0, 3).map((req, i) => (
+                          <Badge
+                            key={`${job.id}-req-${i}`}
+                            variant="outline"
+                            className="font-normal text-xs max-w-[200px] truncate"
+                          >
+                            {req.split(" ").slice(0, 4).join(" ")}...
                           </Badge>
                         ))}
+                        {job.requirements.length > 3 && (
+                          <Badge variant="outline" className="font-normal text-xs">
+                            +{job.requirements.length - 3} more
+                          </Badge>
+                        )}
                       </div>
 
-                      {/* Fit Reasons */}
-                      <p className="text-sm text-muted-foreground">
-                        <span className="font-medium text-foreground">
-                          Why it matches:{" "}
-                        </span>
-                        {job.fitReasons.join(", ")}
-                      </p>
+                      {/* Match Reasons */}
+                      {job.matchReasons && (
+                        <p className="text-sm text-muted-foreground">
+                          <span className="font-medium text-foreground">
+                            Why it matches:{" "}
+                          </span>
+                          {job.matchReasons.join(", ")}
+                        </p>
+                      )}
 
                       {/* Actions Row */}
                       <div className="flex items-center justify-between border-t border-border/60 pt-3">
-                        <Badge
-                          variant={getSourceBadgeVariant(job.source) as "success" | "default" | "secondary" | "muted"}
-                        >
-                          {job.source}
-                        </Badge>
+                        <Badge variant="secondary">{job.source}</Badge>
                         <div className="flex items-center gap-1">
                           <Button
                             variant="ghost"
                             size="sm"
                             className={cn(
                               "gap-2",
-                              job.saved && "text-primary"
+                              savedJobs.has(job.id) && "text-primary"
                             )}
+                            onClick={() => toggleSaved(job.id)}
                           >
                             <Bookmark
                               className={cn(
                                 "h-4 w-4",
-                                job.saved && "fill-current"
+                                savedJobs.has(job.id) && "fill-current"
                               )}
                             />
-                            {job.saved ? "Saved" : "Save"}
+                            {savedJobs.has(job.id) ? "Saved" : "Save"}
                           </Button>
-                          <Button variant="ghost" size="sm" asChild>
-                            <a
-                              href={job.sourceUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="gap-2"
-                            >
-                              <ExternalLink className="h-4 w-4" />
-                              View
-                            </a>
+                          {job.url && (
+                            <Button variant="ghost" size="sm" asChild>
+                              <a
+                                href={job.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="gap-2"
+                              >
+                                <ExternalLink className="h-4 w-4" />
+                                View
+                              </a>
+                            </Button>
+                          )}
+                          <Button
+                            variant="default"
+                            size="sm"
+                            className="gap-2"
+                            onClick={() => generateCoverLetter(job)}
+                          >
+                            <Wand2 className="h-4 w-4" />
+                            Cover Letter
                           </Button>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon-sm">
-                                <MoreVertical className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem className="gap-2">
-                                <FileText className="h-4 w-4" />
-                                Generate Cover Letter
-                              </DropdownMenuItem>
-                              <DropdownMenuItem className="gap-2">
-                                <Mail className="h-4 w-4" />
-                                Generate Email
-                              </DropdownMenuItem>
-                              <DropdownMenuItem className="gap-2">
-                                <Linkedin className="h-4 w-4" />
-                                Generate LinkedIn Message
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
                         </div>
                       </div>
                     </div>
@@ -363,6 +412,85 @@ export default function JobsPage() {
             ))}
           </div>
         )}
+
+        {/* Cover Letter Dialog */}
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5" />
+                Cover Letter for {selectedJob?.company}
+              </DialogTitle>
+              <DialogDescription>
+                {selectedJob?.title}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="flex-1 overflow-y-auto">
+              {/* Profile warning */}
+              {profileWarning && (
+                <div className="mb-4 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                  <AlertTriangle className="h-5 w-5 shrink-0 text-amber-500" />
+                  <div>
+                    <p className="font-medium">Limited personalization</p>
+                    <p className="text-amber-700">{profileWarning}</p>
+                    <a href="/profile" className="mt-1 inline-block text-amber-900 underline hover:no-underline">
+                      Go to Profile →
+                    </a>
+                  </div>
+                </div>
+              )}
+
+              {isGenerating ? (
+                <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <Shimmer className="text-sm text-muted-foreground" duration={1.5}>
+                    {generationStep}
+                  </Shimmer>
+                </div>
+              ) : coverLetter ? (
+                <div className="space-y-4 text-sm leading-relaxed">
+                  <p className="font-medium">{coverLetter.greeting}</p>
+                  <p>{coverLetter.opening}</p>
+                  {coverLetter.body.map((paragraph, i) => (
+                    <p key={`body-${i}`}>{paragraph}</p>
+                  ))}
+                  <p>{coverLetter.closing}</p>
+                  <p className="font-medium">{coverLetter.signature}</p>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center py-12 text-muted-foreground">
+                  Something went wrong. Please try again.
+                </div>
+              )}
+            </div>
+
+            {coverLetter && (
+              <div className="flex justify-end gap-2 pt-4 border-t">
+                <Button variant="outline" size="sm" onClick={copyToClipboard}>
+                  {copied ? (
+                    <>
+                      <Check className="h-4 w-4 mr-2" />
+                      Copied!
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-4 w-4 mr-2" />
+                      Copy
+                    </>
+                  )}
+                </Button>
+                <Button variant="outline" size="sm" onClick={downloadAsTxt}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Download
+                </Button>
+                <Button size="sm" onClick={() => setIsDialogOpen(false)}>
+                  Done
+                </Button>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </AppShell>
   );

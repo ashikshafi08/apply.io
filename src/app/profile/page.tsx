@@ -38,7 +38,7 @@ import {
 import { Loader } from "@/components/ai-elements/loader";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { saveProfile, loadProfile, updateProfileFromResume, type ProfileData } from "@/app/actions/profile";
+import { saveProfileToStorage, loadProfileFromStorage, type ProfileData } from "@/lib/profile-storage";
 import type { ParsedResume } from "@/mastra/agents/resume-parser";
 import { ParsingProgress } from "@/components/ui/parsing-progress";
 
@@ -83,36 +83,30 @@ export default function ProfilePage() {
   const [remotePreference, setRemotePreference] = useState("any");
   const [companySize, setCompanySize] = useState("any");
 
-  // Load profile on mount
+  // Load profile on mount from localStorage
   useEffect(() => {
-    async function fetchProfile() {
-      setIsLoading(true);
-      const result = await loadProfile();
-      
-      if (result.success && result.data) {
-        const data = result.data;
-        setHeadline(data.headline ?? "");
-        setSummary(data.summary ?? "");
-        // Deduplicate arrays to avoid React key conflicts
-        setSkills([...new Set(data.skills ?? [])]);
-        setExperience(data.experience ?? []);
-        setEducation(data.education ?? []);
-        setTargetTitles([...new Set(data.targetTitles ?? [])]);
-        setTargetLocations([...new Set(data.targetLocations ?? [])]);
-        setSearchKeywords([...new Set(data.searchKeywords ?? [])]);
-        setMinSalary(data.minSalary?.toString() ?? "");
-        setMaxSalary(data.maxSalary?.toString() ?? "");
-        setRemotePreference(data.remotePreference ?? "any");
-        setResumeText(data.resumeText);
-        if (data.companySize?.length > 0) {
-          setCompanySize(data.companySize[0]);
-        }
+    const data = loadProfileFromStorage();
+    
+    if (data) {
+      setHeadline(data.headline ?? "");
+      setSummary(data.summary ?? "");
+      // Deduplicate arrays to avoid React key conflicts
+      setSkills([...new Set(data.skills ?? [])]);
+      setExperience(data.experience ?? []);
+      setEducation(data.education ?? []);
+      setTargetTitles([...new Set(data.targetTitles ?? [])]);
+      setTargetLocations([...new Set(data.targetLocations ?? [])]);
+      setSearchKeywords([...new Set(data.searchKeywords ?? [])]);
+      setMinSalary(data.minSalary?.toString() ?? "");
+      setMaxSalary(data.maxSalary?.toString() ?? "");
+      setRemotePreference(data.remotePreference ?? "any");
+      setResumeText(data.resumeText);
+      if (data.companySize?.length > 0) {
+        setCompanySize(data.companySize[0]);
       }
-      
-      setIsLoading(false);
     }
     
-    fetchProfile();
+    setIsLoading(false);
   }, []);
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -206,8 +200,22 @@ export default function ProfilePage() {
               if (data.searchKeywords?.length > 0) setSearchKeywords([...new Set(data.searchKeywords as string[])]);
               setResumeText(event.rawText);
 
-              // Save to storage
-              await updateProfileFromResume(data, event.rawText);
+              // Save to localStorage
+              saveProfileToStorage({
+                headline: data.headline ?? null,
+                summary: data.summary ?? null,
+                skills: data.skills ?? [],
+                experience: data.experience ?? [],
+                education: data.education ?? [],
+                targetTitles: data.targetTitles ?? [],
+                targetLocations: [],
+                searchKeywords: data.searchKeywords ?? [],
+                minSalary: null,
+                maxSalary: null,
+                remotePreference: null,
+                companySize: [],
+                resumeText: event.rawText,
+              });
 
               toast.success("Resume parsed and saved!");
               
@@ -237,7 +245,7 @@ export default function ProfilePage() {
     }
   };
 
-  const handleSaveProfile = async () => {
+  const handleSaveProfile = () => {
     setIsSaving(true);
     const toastId = toast.loading("Saving your profile...");
 
@@ -258,12 +266,12 @@ export default function ProfilePage() {
         resumeText,
       };
 
-      const result = await saveProfile(profileData);
+      const success = saveProfileToStorage(profileData);
 
-      if (result.success) {
+      if (success) {
         toast.success("Profile saved successfully!", { id: toastId });
       } else {
-        toast.error(result.error, { id: toastId });
+        toast.error("Failed to save profile", { id: toastId });
       }
     } catch (error) {
       console.error("Save error:", error);

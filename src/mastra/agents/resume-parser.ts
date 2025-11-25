@@ -1,6 +1,7 @@
 import { Agent } from "@mastra/core/agent";
 import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
+import { PIIDetector } from "@mastra/core/processors";
 
 // Schema for structured resume output
 export const resumeSchema = z.object({
@@ -44,6 +45,18 @@ export type ParsedResume = z.infer<typeof resumeSchema>;
 
 export const resumeParserAgent = new Agent({
   name: "resume-parser",
+  
+  // Output guardrails: detect and warn about PII in parsed output
+  // We use 'warn' strategy since resumes legitimately contain some PII
+  outputProcessors: [
+    new PIIDetector({
+      model: openai("gpt-5-mini-2025-08-07"),
+      detectionTypes: ["credit-card", "ssn"], // Only flag sensitive financial/identity info
+      threshold: 0.8,
+      strategy: "warn", // Log but don't block - resumes have names/emails by design
+    }),
+  ],
+  
   instructions: `You are an expert resume parser and career advisor. Your job is to:
 
 1. Extract structured information from resume text
